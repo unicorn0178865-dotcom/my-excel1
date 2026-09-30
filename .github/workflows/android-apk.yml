@@ -14,33 +14,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Set up Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Find Android SDK
+      - name: Set up Android SDK
         shell: bash
         run: |
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          SDK="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$SDK/cmdline-tools"
 
-          if [ -f "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "sdkmanager found"
-          else
-            echo "sdkmanager not found"
-            find "$ANDROID_SDK_ROOT" -name sdkmanager -type f 2>/dev/null | head -20
-            exit 1
-          fi
+          cd "$RUNNER_TEMP"
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
 
-      - name: Install Android SDK packages
+          unzip -q cmdline-tools.zip -d "$SDK/cmdline-tools"
+          mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --version
+
+      - name: Install Android packages
         shell: bash
         run: |
           SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 
-          yes | "$SDKMANAGER" --licenses || true
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
 
           "$SDKMANAGER" \
             "platform-tools" \
@@ -50,7 +54,6 @@ jobs:
       - name: Create Android project
         shell: bash
         run: |
-
           mkdir -p android-project/app/src/main/java/com/example/myexcel
           mkdir -p android-project/app/src/main/res/values
           mkdir -p android-project/app/src/main/assets
@@ -84,7 +87,6 @@ jobs:
 
           cat > android-project/gradle.properties <<'EOF'
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          android.useAndroidX=true
           EOF
 
           cat > android-project/app/build.gradle <<'EOF'
@@ -104,10 +106,6 @@ jobs:
                   versionName '1.0'
               }
           }
-
-          dependencies {
-              implementation 'androidx.appcompat:appcompat:1.7.0'
-          }
           EOF
 
           cat > android-project/app/src/main/AndroidManifest.xml <<'EOF'
@@ -115,17 +113,17 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
               <application
-                  android:allowBackup="true"
+                  android:theme="@style/AppTheme"
                   android:label="My Excel"
-                  android:theme="@style/AppTheme">
+                  android:allowBackup="true">
 
                   <activity
                       android:name=".MainActivity"
                       android:exported="true">
 
                       <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
                       </intent-filter>
 
                   </activity>
@@ -135,20 +133,13 @@ jobs:
           </manifest>
           EOF
 
-          cat > android-project/app/src/main/res/values/strings.xml <<'EOF'
-          <resources>
-              <string name="app_name">My Excel</string>
-          </resources>
-          EOF
-
           cat > android-project/app/src/main/res/values/styles.xml <<'EOF'
           <resources>
               <style name="AppTheme"
-                  parent="Theme.AppCompat.Light.NoActionBar">
+                  parent="@android:style/Theme.Material.Light.NoActionBar">
                   <item name="android:fontFamily">sans</item>
                   <item name="android:colorAccent">#1976D2</item>
                   <item name="android:statusBarColor">#1976D2</item>
-                  <item name="android:navigationBarColor">#FFFFFF</item>
               </style>
           </resources>
           EOF
@@ -156,14 +147,13 @@ jobs:
           cat > android-project/app/src/main/java/com/example/myexcel/MainActivity.java <<'EOF'
           package com.example.myexcel;
 
+          import android.app.Activity;
           import android.os.Bundle;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
 
-          import androidx.appcompat.app.AppCompatActivity;
-
-          public class MainActivity extends AppCompatActivity {
+          public class MainActivity extends Activity {
 
               private WebView webView;
 
@@ -180,7 +170,6 @@ jobs:
                   settings.setAllowFileAccess(true);
 
                   webView.setWebViewClient(new WebViewClient());
-
                   webView.loadUrl("file:///android_asset/index.html");
               }
 
@@ -193,6 +182,12 @@ jobs:
                   }
               }
           }
+          EOF
+
+          cat > android-project/app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="app_name">My Excel</string>
+          </resources>
           EOF
 
           cat > android-project/app/src/main/assets/index.html <<'EOF'
@@ -402,9 +397,135 @@ jobs:
               URL.revokeObjectURL(url);
           }
 
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-release
-        path: app/build/outputs/apk/release/app-release-unsigned.
-         
+          function clearSheet(){
+
+              if(!confirm("সব ডাটা মুছে ফেলবেন?")) return;
+
+              document.querySelectorAll("td[contenteditable=true]")
+              .forEach(td=>td.innerText="");
+
+              localStorage.removeItem("myExcelData");
+
+              document.getElementById("status").innerText=
+                  "Sheet cleared";
+          }
+
+          function columnNumber(name){
+
+              let n=0;
+
+              for(let i=0;i<name.length;i++){
+                  n=n*26+name.charCodeAt(i)-64;
+              }
+
+              return n;
+          }
+
+          function cellValue(cell){
+
+              let el=document.querySelector(
+                  `td[data-cell="${cell}"]`);
+
+              if(!el)return 0;
+
+              let v=el.innerText.trim();
+
+              if(v.startsWith("="))
+                  return evaluateFormula(v);
+
+              let n=parseFloat(v);
+
+              return isNaN(n)?0:n;
+          }
+
+          function evaluateFormula(f){
+
+              f=f.toUpperCase().trim();
+
+              let m=f.match(
+              /^=(SUM|AVERAGE)\(([A-Z]+)([0-9]+):([A-Z]+)([0-9]+)\)$/);
+
+              if(!m)return 0;
+
+              let fn=m[1];
+              let c1=columnNumber(m[2]);
+              let r1=parseInt(m[3]);
+              let c2=columnNumber(m[4]);
+              let r2=parseInt(m[5]);
+
+              let values=[];
+
+              for(let r=r1;r<=r2;r++){
+                  for(let c=c1;c<=c2;c++){
+                      values.push(cellValue(colName(c)+r));
+                  }
+              }
+
+              let total=values.reduce((a,b)=>a+b,0);
+
+              if(fn==="SUM")return total;
+
+              return values.length?total/values.length:0;
+          }
+
+          function sumSelected(){
+
+              if(!selectedCell)return;
+
+              let c=parseInt(selectedCell.dataset.col);
+              let r=parseInt(selectedCell.dataset.row);
+
+              selectedCell.innerText=
+                  "=SUM("+colName(c)+"1:"+colName(c)+r+")";
+
+              document.getElementById("status").innerText=
+                  "Result: "+evaluateFormula(selectedCell.innerText);
+          }
+
+          function averageSelected(){
+
+              if(!selectedCell)return;
+
+              let c=parseInt(selectedCell.dataset.col);
+              let r=parseInt(selectedCell.dataset.row);
+
+              selectedCell.innerText=
+                  "=AVERAGE("+colName(c)+"1:"+colName(c)+r+")";
+
+              document.getElementById("status").innerText=
+                  "Average: "+evaluateFormula(selectedCell.innerText);
+          }
+
+          createSheet();
+
+          </script>
+
+          </body>
+          </html>
+          EOF
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build APK
+        working-directory: android-project
+        run: |
+          gradle assembleDebug --no-daemon
+          ls -lh app/build/outputs/apk/debug/
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          test -f android-project/app/build/outputs/apk/debug/app-debug.apk
+          echo "APK found:"
+          ls -lh android-project/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyExcel-debug-apk
+          path: android-project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
