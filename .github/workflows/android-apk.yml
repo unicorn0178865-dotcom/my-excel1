@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'MyExcel_Full_Android_Project.zip'
-      - '.github/workflows/android-apk.yml'
+      - ".github/workflows/android-apk.yml"
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,34 +18,497 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Extract Android project
+      - name: Install Android SDK
         run: |
-          rm -rf android-project
-          mkdir android-project
-          unzip -q MyExcel_Full_Android_Project.zip -d android-project
-          test -f android-project/settings.gradle
-          test -f android-project/app/build.gradle
+          yes | sdkmanager --licenses || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Set up Gradle 8.7
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
+      - name: Create Android project
+        run: |
+          mkdir -p android-project/app/src/main/java/com/example/myexcel
+          mkdir -p android-project/app/src/main/res/values
+          mkdir -p android-project/app/src/main/assets
 
-      - name: Build debug APK
-        working-directory: android-project
-        run: gradle assembleDebug --no-daemon
+          cat > android-project/settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: MyExcel-debug-apk
-          path: android-project/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "MyExcel"
+          include(":app")
+          EOF
+
+          cat > android-project/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+          }
+          EOF
+
+          cat > android-project/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          EOF
+
+          cat > android-project/app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.example.myexcel'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.example.myexcel'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.7.0'
+          }
+          EOF
+
+          cat > android-project/app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <application
+                  android:allowBackup="true"
+                  android:label="My Excel"
+                  android:theme="@style/AppTheme">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+
+                  </activity>
+
+              </application>
+
+          </manifest>
+          EOF
+
+          cat > android-project/app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="app_name">My Excel</string>
+          </resources>
+          EOF
+
+          cat > android-project/app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+
+              <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">#1976D2</item>
+                  <item name="android:navigationBarColor">#FFFFFF</item>
+                  <item name="android:statusBarColor">#1976D2</item>
+              </style>
+
+          </resources>
+          EOF
+
+          cat > android-project/app/src/main/java/com/example/myexcel/MainActivity.java <<'EOF'
+          package com.example.myexcel;
+
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          import androidx.appcompat.app.AppCompatActivity;
+
+          public class MainActivity extends AppCompatActivity {
+
+              private WebView webView;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  webView = new WebView(this);
+                  setContentView(webView);
+
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setAllowFileAccess(true);
+
+                  webView.setWebViewClient(new WebViewClient());
+
+                  webView.loadUrl("file:///android_asset/index.html");
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+          }
+          EOF
+
+          cat > android-project/app/src/main/assets/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="bn">
+          <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>My Excel</title>
+
+          <style>
+          * {
+              box-sizing: border-box;
+          }
+
+          body {
+              margin: 0;
+              font-family: Arial, sans-serif;
+              background: #f2f4f7;
+          }
+
+          .top {
+              background: #1976d2;
+              color: white;
+              padding: 12px;
+              font-size: 20px;
+              font-weight: bold;
+          }
+
+          .toolbar {
+              background: white;
+              padding: 8px;
+              display: flex;
+              gap: 6px;
+              flex-wrap: wrap;
+              position: sticky;
+              top: 0;
+              z-index: 10;
+              border-bottom: 1px solid #ccc;
+          }
+
+          button {
+              border: 0;
+              background: #1976d2;
+              color: white;
+              padding: 8px 12px;
+              border-radius: 5px;
+              font-size: 14px;
+          }
+
+          button:active {
+              background: #0d47a1;
+          }
+
+          .formula {
+              display: flex;
+              background: white;
+              padding: 7px;
+              border-bottom: 1px solid #ccc;
+          }
+
+          .formula input {
+              width: 100%;
+              padding: 8px;
+              border: 1px solid #bbb;
+              font-size: 15px;
+          }
+
+          .sheet {
+              overflow: auto;
+              height: calc(100vh - 135px);
+          }
+
+          table {
+              border-collapse: collapse;
+              background: white;
+          }
+
+          th, td {
+              border: 1px solid #bbb;
+              min-width: 100px;
+              height: 36px;
+          }
+
+          th {
+              background: #e3f2fd;
+              position: sticky;
+              top: 0;
+              z-index: 2;
+              text-align: center;
+          }
+
+          .rowhead {
+              min-width: 45px;
+              width: 45px;
+              position: sticky;
+              left: 0;
+              z-index: 3;
+              background: #e3f2fd;
+              text-align: center;
+          }
+
+          td {
+              padding: 5px;
+              outline: none;
+          }
+
+          td:focus {
+              background: #fffde7;
+              box-shadow: inset 0 0 0 2px #1976d2;
+          }
+
+          .status {
+              padding: 6px;
+              background: #fafafa;
+              font-size: 12px;
+              color: #555;
+          }
+          </style>
+          </head>
+
+          <body>
+
+          <div class="top">📊 My Excel</div>
+
+          <div class="toolbar">
+              <button onclick="saveFile()">Save</button>
+              <button onclick="openFile()">Open</button>
+              <button onclick="exportCSV()">CSV</button>
+              <button onclick="sumSelected()">SUM</button>
+              <button onclick="averageSelected()">AVERAGE</button>
+              <button onclick="clearSheet()">Clear</button>
+          </div>
+
+          <div class="formula">
+              <input id="formulaBar" placeholder="Cell value / formula যেমন =SUM(A1:A5)">
+          </div>
+
+          <div class="sheet">
+              <table id="sheet"></table>
+          </div>
+
+          <div class="status" id="status">Ready</div>
+
+          <script>
+
+          const ROWS = 40;
+          const COLS = 15;
+
+          let selectedCell = null;
+
+          function colName(n) {
+              let s = "";
+              while (n > 0) {
+                  let r = (n - 1) % 26;
+                  s = String.fromCharCode(65 + r) + s;
+                  n = Math.floor((n - 1) / 26);
+              }
+              return s;
+          }
+
+          function createSheet() {
+
+              const table = document.getElementById("sheet");
+              table.innerHTML = "";
+
+              let header = document.createElement("tr");
+
+              let corner = document.createElement("th");
+              corner.className = "rowhead";
+              corner.innerText = "";
+              header.appendChild(corner);
+
+              for (let c = 1; c <= COLS; c++) {
+                  let th = document.createElement("th");
+                  th.innerText = colName(c);
+                  header.appendChild(th);
+              }
+
+              table.appendChild(header);
+
+              for (let r = 1; r <= ROWS; r++) {
+
+                  let tr = document.createElement("tr");
+
+                  let rowHead = document.createElement("th");
+                  rowHead.className = "rowhead";
+                  rowHead.innerText = r;
+                  tr.appendChild(rowHead);
+
+                  for (let c = 1; c <= COLS; c++) {
+
+                      let td = document.createElement("td");
+
+                      td.contentEditable = true;
+                      td.dataset.row = r;
+                      td.dataset.col = c;
+                      td.dataset.cell = colName(c) + r;
+
+                      td.addEventListener("focus", function() {
+                          selectedCell = this;
+                          document.getElementById("formulaBar").value =
+                              this.innerText;
+                      });
+
+                      td.addEventListener("input", function() {
+                          document.getElementById("formulaBar").value =
+                              this.innerText;
+                      });
+
+                      td.addEventListener("keydown", function(e) {
+
+                          if (e.key === "Enter") {
+                              e.preventDefault();
+
+                              let nr = parseInt(this.dataset.row) + 1;
+                              let nc = parseInt(this.dataset.col);
+
+                              if (nr <= ROWS) {
+                                  let next =
+                                      document.querySelector(
+                                          `td[data-row="${nr}"][data-col="${nc}"]`
+                                      );
+
+                                  if (next) next.focus();
+                              }
+                          }
+                      });
+
+                      tr.appendChild(td);
+                  }
+
+                  table.appendChild(tr);
+              }
+
+              document.getElementById("status").innerText =
+                  "40 rows × 15 columns ready";
+          }
+
+          document.getElementById("formulaBar")
+              .addEventListener("change", function() {
+
+                  if (selectedCell) {
+                      selectedCell.innerText = this.value;
+                  }
+
+              });
+
+          function cellValue(cell) {
+
+              let el = document.querySelector(
+                  `td[data-cell="${cell}"]`
+              );
+
+              if (!el) return 0;
+
+              let value = el.innerText.trim();
+
+              if (value.startsWith("=")) {
+                  return evaluateFormula(value);
+              }
+
+              let n = parseFloat(value);
+
+              return isNaN(n) ? 0 : n;
+          }
+
+          function evaluateFormula(formula) {
+
+              formula = formula.toUpperCase().trim();
+
+              let match = formula.match(
+                  /^=(SUM|AVERAGE)([A-Z]+)([0-9]+):([A-Z]+)([0-9]+)$/
+              );
+
+              if (!match) return formula;
+
+              let fn = match[1];
+
+              let c1 = match[2];
+              let r1 = parseInt(match[3]);
+
+              let c2 = match[4];
+              let r2 = parseInt(match[5]);
+
+              let start = columnNumber(c1);
+              let end = columnNumber(c2);
+
+              let values = [];
+
+              for (let r = r1; r <= r2; r++) {
+
+                  for (let c = start; c <= end; c++) {
+
+                      values.push(
+                          cellValue(colName(c) + r)
+                      );
+
+                  }
+              }
+
+              if (fn === "SUM") {
+                  return values.reduce((a,b) => a+b, 0);
+              }
+
+              if (fn === "AVERAGE") {
+                  return values.length ?
+                      values.reduce((a,b) => a+b, 0) / values.length :
+                      0;
+              }
+
+              return 0;
+          }
+
+          function columnNumber(name) {
+
+              let n = 0;
+
+              for (let i = 0; i < name.length; i++) {
+                  n = n * 26 +
+                      name.charCodeAt(i) - 64;
+              }
+
+              return n;
+          }
+
+          function sumSelected() {
+
+              if (!selectedCell) return;
+
+              let r = selectedCell.dataset.row;
+              let c = selectedCell.dataset.col;
+
+              let formula =
+                  "=SUM(" +
+                  colName(parseInt(c)) +
+                  "1:" +
+                  colName(parseInt(c)) +
+                  r +
+                  ")";
+
+              selectedCell
